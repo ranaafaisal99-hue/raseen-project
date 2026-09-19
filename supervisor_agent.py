@@ -1,25 +1,42 @@
 import sys
 import os
+
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
+from langchain.tools import tool
+from langchain.agents import create_agent
 
 load_dotenv()
 
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# ============================================================
+# Base Directory
+# ============================================================
+
+BASE_DIR = os.path.dirname(
+    os.path.abspath(__file__)
+)
+
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
-from ml_model import predict_turbofan_status, best_params, f1_score_val
+
+# ============================================================
+# Project Imports
+# ============================================================
+
+from ml_model import predict_rul
+
 from tools import (
     query_engine_cost_sql,
     calculate_rul_and_maintenance_cost_api,
     send_user_alert_api,
 )
 
-from langchain.tools import tool
-from langchain.agents import create_agent
 
+# ============================================================
+# DeepSeek Model
+# ============================================================
 
 deepseek_model = ChatOpenAI(
     model="deepseek-flash",
@@ -27,23 +44,97 @@ deepseek_model = ChatOpenAI(
     base_url="https://api.deepseek.com",
 )
 
+
 # ============================================================
 # LangChain Tools
 # ============================================================
 
 
 @tool
-def fleet_registry_tool(engine_id: str) -> dict:
-    """Retrieve engine asset information from the fleet registry."""
-    return query_engine_cost_sql(engine_id)
+def engine_prediction_tool(
+    engine_id: str,
+    cycle: int,
+    sensor_1: float,
+    sensor_2: float,
+    sensor_3: float,
+    sensor_4: float,
+    sensor_5: float,
+    sensor_6: float,
+    sensor_7: float,
+    sensor_8: float,
+    sensor_9: float,
+    sensor_10: float,
+    sensor_11: float,
+    sensor_12: float,
+    sensor_13: float,
+    sensor_14: float,
+) -> dict:
+    """
+    Predict the Remaining Useful Life (RUL) of a turbofan engine
+    using the trained Bagging regression model.
+    """
+
+    sensor_values = [
+        sensor_1,
+        sensor_2,
+        sensor_3,
+        sensor_4,
+        sensor_5,
+        sensor_6,
+        sensor_7,
+        sensor_8,
+        sensor_9,
+        sensor_10,
+        sensor_11,
+        sensor_12,
+        sensor_13,
+        sensor_14,
+    ]
+
+    predicted_rul = predict_rul(
+        engine_id=engine_id,
+        sensor_values=sensor_values,
+        cycle=cycle,
+    )
+
+    return {
+        "engine_id": engine_id,
+        "cycle": cycle,
+        "predicted_rul_cycles": round(
+            predicted_rul,
+            2
+        ),
+        "model": "Bagging Regressor",
+        "task": "RUL Regression",
+    }
 
 
 @tool
-def rul_degradation_tool(engine_id: str, health_status: str) -> dict:
-    """Calculate remaining useful life, risk level, and estimated repair cost."""
+def fleet_registry_tool(
+    engine_id: str
+) -> dict:
+    """
+    Retrieve engine asset information from the fleet registry.
+    """
+
+    return query_engine_cost_sql(
+        engine_id
+    )
+
+
+@tool
+def rul_degradation_tool(
+    engine_id: str,
+    predicted_rul: float
+) -> dict:
+    """
+    Determine health status, risk level,
+    and estimated repair cost using the ML-predicted RUL.
+    """
+
     return calculate_rul_and_maintenance_cost_api(
         engine_id,
-        health_status
+        predicted_rul
     )
 
 
@@ -52,77 +143,127 @@ def notification_tool(
     engine_id: str,
     health_status: str,
     asset_cost: float,
-    repair_cost: float
+    repair_cost: float,
+    predicted_rul: float,
+    risk_level: str,
 ) -> dict:
-    """Create the final preventive-maintenance notification."""
+    """
+    Create the final predictive maintenance notification.
+    """
+
     return send_user_alert_api(
-        engine_id,
-        health_status,
-        asset_cost,
-        repair_cost
+        engine_id=engine_id,
+        health_status=health_status,
+        asset_cost=asset_cost,
+        repair_cost=repair_cost,
+        predicted_rul=predicted_rul,
+        risk_level=risk_level,
     )
 
-@tool
-def engine_prediction_tool(
-    sensor_s2: float,
-    sensor_s3: float,
-    sensor_s4: float,
-    sensor_s11: float
-) -> dict:
-    """Predict the current engine health status using the ML model."""
 
-    status = predict_turbofan_status(
-        sensor_s2,
-        sensor_s3,
-        sensor_s4,
-        sensor_s11
-    )
-
-    return {
-        "health_status": status,
-        "model": "KNN"
-    }
-
+# ============================================================
+# Supervisor System Prompt
+# ============================================================
 
 SUPERVISOR_SYSTEM_PROMPT = """
 You are the Supervisor Agent for the Raseen predictive maintenance system.
 
-You are responsible for coordinating the complete predictive maintenance workflow.
+Your responsibility is to coordinate the complete predictive maintenance
+workflow for a NASA C-MAPSS turbofan engine.
 
-Follow these steps in order:
+Follow these steps in order.
 
-1. Use the Engine Prediction Tool with the provided sensor readings
-   to determine the current engine health status.
+STEP 1:
+Use the Engine Prediction Tool.
 
-2. Use the Fleet Registry Tool with the engine ID
-   to retrieve the engine asset information and asset cost.
+The tool receives:
+- Engine ID
+- Cycle
+- Sensor 1
+- Sensor 2
+- Sensor 3
+- Sensor 4
+- Sensor 5
+- Sensor 6
+- Sensor 7
+- Sensor 8
+- Sensor 9
+- Sensor 10
+- Sensor 11
+- Sensor 12
+- Sensor 13
+- Sensor 14
 
-3. Use the RUL Degradation Tool with the engine ID and the predicted
-   health status to calculate remaining useful life, risk level,
-   and estimated repair cost.
+The tool uses the trained Bagging Regressor to predict
+the Remaining Useful Life (RUL).
 
-4. Use the Notification Tool with the engine ID, health status,
-   asset cost, and repair cost to generate the final maintenance report.
+STEP 2:
+Use the Fleet Registry Tool with the engine ID.
 
-5. Do not skip any required tool.
+Retrieve the engine asset ID and asset cost.
 
-6. Do not invent engine data, health status, RUL values,
-   asset costs, repair costs, or notification results.
+STEP 3:
+Use the RUL Degradation Tool.
 
-7. Use the output of each tool as input for the next required tool.
+Pass:
+- Engine ID
+- The predicted RUL returned by the Engine Prediction Tool
 
-8. After all tools have been completed, provide a concise final response
-   containing the engine ID, health status, model used, RUL,
-   risk level, repair cost, and final maintenance message.
+The tool determines:
+- Health Status
+- Risk Level
+- Estimated Repair Cost
+
+STEP 4:
+Use the Notification Tool.
+
+Pass:
+- Engine ID
+- Health Status
+- Asset Cost
+- Repair Cost
+- Predicted RUL
+- Risk Level
+
+STEP 5:
+Do not skip any required tool.
+
+STEP 6:
+Do not invent sensor values, RUL values, asset costs,
+repair costs, health statuses, risk levels, or notification results.
+
+STEP 7:
+Use the output of each tool as input for the next tool.
+
+STEP 8:
+After all tools have been completed, provide a concise final report
+containing:
+
+- Engine ID
+- Cycle
+- Health Status
+- Model Used
+- Predicted RUL
+- Risk Level
+- Asset Cost
+- Repair Cost
+- Final Maintenance Message
+
+The RUL must come from the Machine Learning model.
+Do not calculate or invent another RUL value.
 """
+
+
+# ============================================================
+# Build Supervisor
+# ============================================================
 
 def build_supervisor(model):
     """
     Build the LangChain Supervisor Agent.
 
-    The model is passed from outside so we can choose the LLM later.
-
-    This function only builds the agent; it does not execute it.
+    The model is passed from outside so the LLM
+    can be changed without changing the workflow.
     """
 
     supervisor = create_agent(
@@ -131,101 +272,176 @@ def build_supervisor(model):
             engine_prediction_tool,
             fleet_registry_tool,
             rul_degradation_tool,
-            notification_tool
+            notification_tool,
         ],
         system_prompt=SUPERVISOR_SYSTEM_PROMPT,
-        name="raseen_supervisor"
+        name="raseen_supervisor",
     )
 
     return supervisor
 
 
-
 # ============================================================
-# Supervisor
+# Run Supervisor
 # ============================================================
 
 def run_supervisor(
     engine_id: str,
-    sensor_s2: float,
-    sensor_s3: float,
-    sensor_s4: float,
-    sensor_s11: float
+    cycle: int,
+    sensor_1: float,
+    sensor_2: float,
+    sensor_3: float,
+    sensor_4: float,
+    sensor_5: float,
+    sensor_6: float,
+    sensor_7: float,
+    sensor_8: float,
+    sensor_9: float,
+    sensor_10: float,
+    sensor_11: float,
+    sensor_12: float,
+    sensor_13: float,
+    sensor_14: float,
 ):
     """
-    Supervisor workflow.
-
-    The LangChain Supervisor Agent coordinates the complete
-    predictive maintenance workflow.
+    Run the complete Raseen predictive maintenance workflow.
     """
 
     logs = []
 
     # --------------------------------------------------------
-    # Model information
+    # Input Summary
     # --------------------------------------------------------
 
     logs.append(
-        f"🔍 **[KNN Classifier & GridSearchCV]:** "
-        f"المعلمات `{best_params}` | "
-        f"F1-Score: `{f1_score_val:.2f}`"
+        f"**[Raseen ML Input]:** "
+        f"Engine `{engine_id}` | "
+        f"Cycle `{cycle}` | "
+        f"14 sensor readings received."
     )
 
     # --------------------------------------------------------
-    # LangChain Supervisor Agent
+    # Build Supervisor
     # --------------------------------------------------------
 
-    supervisor = build_supervisor(deepseek_model)
+    supervisor = build_supervisor(
+        deepseek_model
+    )
+
+    # --------------------------------------------------------
+    # User Request
+    # --------------------------------------------------------
+
+    user_message = f"""
+Analyze turbofan engine {engine_id}
+using the provided NASA C-MAPSS sensor readings.
+
+Engine ID:
+{engine_id}
+
+Current Cycle:
+{cycle}
+
+Sensor 1:
+{sensor_1}
+
+Sensor 2:
+{sensor_2}
+
+Sensor 3:
+{sensor_3}
+
+Sensor 4:
+{sensor_4}
+
+Sensor 5:
+{sensor_5}
+
+Sensor 6:
+{sensor_6}
+
+Sensor 7:
+{sensor_7}
+
+Sensor 8:
+{sensor_8}
+
+Sensor 9:
+{sensor_9}
+
+Sensor 10:
+{sensor_10}
+
+Sensor 11:
+{sensor_11}
+
+Sensor 12:
+{sensor_12}
+
+Sensor 13:
+{sensor_13}
+
+Sensor 14:
+{sensor_14}
+
+Complete the full predictive maintenance workflow.
+
+First:
+Use the Engine Prediction Tool to predict the Remaining Useful Life (RUL).
+
+Second:
+Use the Fleet Registry Tool to retrieve the engine asset information.
+
+Third:
+Use the RUL Degradation Tool using the predicted RUL
+returned by the Machine Learning model.
+
+Fourth:
+Use the Notification Tool to generate the final maintenance alert.
+
+Use the output of each tool as input for the next tool.
+
+Do not invent any values.
+
+The final report must contain:
+
+- Engine ID
+- Cycle
+- Health Status
+- Model Used
+- Predicted RUL
+- Risk Level
+- Asset Cost
+- Repair Cost
+- Final Maintenance Message
+"""
+
+    # --------------------------------------------------------
+    # Run Agent
+    # --------------------------------------------------------
 
     agent_result = supervisor.invoke(
         {
             "messages": [
                 {
                     "role": "user",
-                    "content": f"""
-Analyze engine {engine_id} using the following sensor readings.
-
-Engine ID: {engine_id}
-
-Sensor S2: {sensor_s2}
-Sensor S3: {sensor_s3}
-Sensor S4: {sensor_s4}
-Sensor S11: {sensor_s11}
-
-Complete the full predictive maintenance workflow.
-
-First, use the Engine Prediction Tool to determine the engine health status.
-
-Then, use the Fleet Registry Tool to retrieve the engine asset information.
-
-Then, use the RUL Degradation Tool to calculate the remaining useful life,
-risk level, and estimated repair cost.
-
-Finally, use the Notification Tool to generate the preventive maintenance report.
-
-Use the output of each tool when calling the next tool.
-
-Do not invent any values.
-
-Return a final maintenance report containing:
-- Engine ID
-- Health Status
-- Model Used
-- RUL
-- Risk Level
-- Asset Cost
-- Repair Cost
-- Final Maintenance Message
-"""
+                    "content": user_message,
                 }
             ]
         }
     )
 
-    agent_response = agent_result["messages"][-1].content
+    # --------------------------------------------------------
+    # Final Agent Response
+    # --------------------------------------------------------
+
+    agent_response = (
+        agent_result["messages"][-1].content
+    )
 
     logs.append(
-        f"**[LangChain Supervisor]:**\n{agent_response}"
+        f"**[LangChain Supervisor]:**\n"
+        f"{agent_response}"
     )
 
     return {
