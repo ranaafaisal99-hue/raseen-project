@@ -108,6 +108,7 @@ def calculate_rul_and_maintenance_cost_api(
     }
 
 
+
 def send_user_alert_api(
     engine_id: str,
     health_status: str,
@@ -118,7 +119,8 @@ def send_user_alert_api(
 ):
     """
     Agent 3 Tool:
-    Construct the final predictive maintenance alert.
+    Generate a local maintenance alert only.
+    No external notification or equipment command is sent.
     """
 
     alert_msg = (
@@ -132,6 +134,8 @@ def send_user_alert_api(
     )
 
     return {
-        "status": "SENT",
-        "message": alert_msg
+        "status": "LOCAL_ONLY",
+        "message": alert_msg,
+        "external_delivery": False,
+        "equipment_command_sent": False
     }

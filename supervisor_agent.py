@@ -214,16 +214,14 @@ The tool determines:
 - Risk Level
 - Estimated Repair Cost
 
-STEP 4:
-Use the Notification Tool.
 
-Pass:
-- Engine ID
-- Health Status
-- Asset Cost
-- Repair Cost
-- Predicted RUL
-- Risk Level
+STEP 4:
+Use the Notification Tool to generate a local maintenance alert only.
+
+The notification is displayed or returned within Raseen.
+Do not claim that an external notification was sent.
+Do not send commands to industrial equipment.
+Do not initiate outbound connections to equipment or OT networks.
 
 STEP 5:
 Do not skip any required tool.
@@ -249,9 +247,18 @@ containing:
 - Repair Cost
 - Final Maintenance Message
 
+STEP 9:
+Raseen operates in receive-only analysis mode.
+Process the provided sensor data and generate local analysis results.
+Never issue equipment-control commands or claim that physical
+one-way communication is enforced by software alone.
+Report the notification status as LOCAL_ONLY.
+
 The RUL must come from the Machine Learning model.
 Do not calculate or invent another RUL value.
 """
+
+
 
 
 # ============================================================
